@@ -74,9 +74,16 @@ function create_certificates($saml2auth, $dn = false, $numberofdays = 3650) {
 
     certificate_openssl_error_strings(); // Ensure existing messages are dropped.
     $privkeypass = get_config('auth_saml2', 'privatekeypass');
+
+    // Configure private/public key bit size
+    $keysize = get_config('auth_saml2', 'keysize');
+    if (!empty($keysize)) { //Fall backs to server defaults in case of empty.
+        set_key_args($opensslargs, $keysize);
+    }
+
     $privkey = openssl_pkey_new($opensslargs);
-    $csr     = openssl_csr_new($dn, $privkey, $opensslargs);
-    $sscert  = openssl_csr_sign($csr, null, $privkey, $numberofdays, $opensslargs);
+    $csr = openssl_csr_new($dn, $privkey, $opensslargs);
+    $sscert = openssl_csr_sign($csr, null, $privkey, $numberofdays, $opensslargs);
     openssl_x509_export($sscert, $publickey);
     openssl_pkey_export($privkey, $privatekey, $privkeypass, $opensslargs);
     openssl_pkey_export($privkey, $privatekey, $privkeypass);
@@ -152,34 +159,57 @@ function pretty_print($arr) {
  *
  * @return string
  */
-function get_dn_email() {
+function get_dn_email()
+{
     global $CFG;
 
     $supportuser = \core_user::get_support_user();
 
     if ($supportuser && !empty($supportuser->email)) {
         $email = $supportuser->email;
-    } else if (isset($CFG->noreplyaddress) && !empty($CFG->noreplyaddress)) {
-        $email = $CFG->noreplyaddress;
     } else {
-        // Make sure that we get at least something to prevent failing of openssl_csr_new.
-        $email = 'moodle@example.com';
+        if (isset($CFG->noreplyaddress) && !empty($CFG->noreplyaddress)) {
+            $email = $CFG->noreplyaddress;
+        } else {
+            // Make sure that we get at least something to prevent failing of openssl_csr_new.
+            $email = 'moodle@example.com';
+        }
     }
 
     return $email;
 }
 
 /**
+ * Set the key size for certificate generation, ensuring it is at least 2048 bits and with RSA key type set.
+ *
+ * @param &$opensslargs array openssl options
+ * @param $keysize string desired bit size of the private/public key
+ * @return void
+ */
+function set_key_args(&$opensslargs, $keysize): void
+{
+    $keysize = (int)$keysize;
+    // Ensure minimum key size of 2048 bits.
+    if ($keysize < 2048) {
+        $keysize = 2048;
+    }
+    $opensslargs['private_key_type'] = OPENSSL_KEYTYPE_RSA;
+    $opensslargs['private_key_bits'] = $keysize;
+}
+
+/**
  * General saml exception
  */
-class saml2_exception extends moodle_exception {
+class saml2_exception extends moodle_exception
+{
     /**
      * Constructor
      *
      * @param object $a extra words and phrases that might be required in the error string
      * @param string $debuginfo optional debugging information
      */
-    public function __construct($a = null, $debuginfo = null) {
+    public function __construct($a = null, $debuginfo = null)
+    {
         parent::__construct('exception', 'auth_saml2', '', htmlspecialchars($a), $debuginfo);
     }
 }

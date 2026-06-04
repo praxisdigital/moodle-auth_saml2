@@ -135,46 +135,67 @@ if ($ADMIN->fulltree) {
     $settings->add($nameidpolicy);
 
     // Add NameID as attribute.
-    $settings->add(new admin_setting_configselect(
-        'auth_saml2/nameidasattrib',
-        get_string('nameidasattrib', 'auth_saml2'),
-        get_string('nameidasattrib_help', 'auth_saml2'),
-        0,
-        $yesno
-    ));
+    $settings->add(
+        new admin_setting_configselect(
+            'auth_saml2/nameidasattrib',
+            get_string('nameidasattrib', 'auth_saml2'),
+            get_string('nameidasattrib_help', 'auth_saml2'),
+            0,
+            $yesno
+        )
+    );
 
     // Lock certificate.
-    $settings->add(new setting_button(
-        'auth_saml2/certificatelock',
-        get_string('certificatelock', 'auth_saml2'),
-        get_string('certificatelock_help', 'auth_saml2'),
-        get_string('certificatelock', 'auth_saml2'),
-        $CFG->wwwroot . '/auth/saml2/certificatelock.php'
-    ));
+    $settings->add(
+        new setting_button(
+            'auth_saml2/certificatelock',
+            get_string('certificatelock', 'auth_saml2'),
+            get_string('certificatelock_help', 'auth_saml2'),
+            get_string('certificatelock', 'auth_saml2'),
+            $CFG->wwwroot . '/auth/saml2/certificatelock.php'
+        )
+    );
+
+    // Private/Public key bit size on certificate
+    $settings->add(
+        new admin_setting_configselect(
+            'auth_saml2/keysize',
+            get_string('keysize', 'auth_saml2'),
+            get_string('keysize_help', 'auth_saml2'),
+            '2048',
+            [2048 => '2048', 4096 => '4096']
+        )
+    );
 
     // Regenerate certificate.
-    $settings->add(new setting_button(
-        'auth_saml2/certificate',
-        get_string('certificate', 'auth_saml2'),
-        get_string('certificate_help', 'auth_saml2', $CFG->wwwroot . '/auth/saml2/cert.php'),
-        get_string('certificate', 'auth_saml2'),
-        $CFG->wwwroot . '/auth/saml2/regenerate.php'
-    ));
+    $settings->add(
+        new setting_button(
+            'auth_saml2/certificate',
+            get_string('certificate', 'auth_saml2'),
+            get_string('certificate_help', 'auth_saml2', $CFG->wwwroot . '/auth/saml2/cert.php'),
+            get_string('certificate', 'auth_saml2'),
+            $CFG->wwwroot . '/auth/saml2/regenerate.php'
+        )
+    );
 
-    $settings->add(new admin_setting_configpasswordunmask(
-        'auth_saml2/privatekeypass',
-        get_string('privatekeypass', 'auth_saml2'),
-        get_string('privatekeypass_help', 'auth_saml2'),
-        get_site_identifier(),
-        PARAM_TEXT
-    ));
+    $settings->add(
+        new admin_setting_configpasswordunmask(
+            'auth_saml2/privatekeypass',
+            get_string('privatekeypass', 'auth_saml2'),
+            get_string('privatekeypass_help', 'auth_saml2'),
+            get_site_identifier(),
+            PARAM_TEXT
+        )
+    );
 
     // SP Metadata.
-    $settings->add(new setting_textonly(
-        'auth_saml2/spmetadata',
-        get_string('spmetadata', 'auth_saml2'),
-        get_string('spmetadata_help', 'auth_saml2', $CFG->wwwroot . '/auth/saml2/sp/metadata.php')
-    ));
+    $settings->add(
+        new setting_textonly(
+            'auth_saml2/spmetadata',
+            get_string('spmetadata', 'auth_saml2'),
+            get_string('spmetadata_help', 'auth_saml2', $CFG->wwwroot . '/auth/saml2/sp/metadata.php')
+        )
+    );
 
     // SP Metadata signature.
     $spmetadatasign = new admin_setting_configselect(

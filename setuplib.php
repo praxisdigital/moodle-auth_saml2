@@ -78,7 +78,7 @@ function create_certificates($saml2auth, $dn = false, $numberofdays = 3650) {
     // Configure private/public key bit size
     $keysize = get_config('auth_saml2', 'keysize');
     if (!empty($keysize)) { //Fall backs to server defaults in case of empty.
-        set_key_args($opensslargs, $keysize);
+        $opensslargs = set_key_args($opensslargs, $keysize);
     }
 
     $privkey = openssl_pkey_new($opensslargs);
@@ -182,11 +182,11 @@ function get_dn_email()
 /**
  * Set the key size for certificate generation, ensuring it is at least 2048 bits and with RSA key type set.
  *
- * @param &$opensslargs array openssl options
+ * @param $opensslargs array openssl options
  * @param $keysize string desired bit size of the private/public key
  * @return void
  */
-function set_key_args(&$opensslargs, $keysize): void
+function set_key_args($opensslargs, $keysize): array
 {
     $keysize = (int)$keysize;
     // Ensure minimum key size of 2048 bits.
@@ -195,6 +195,8 @@ function set_key_args(&$opensslargs, $keysize): void
     }
     $opensslargs['private_key_type'] = OPENSSL_KEYTYPE_RSA;
     $opensslargs['private_key_bits'] = $keysize;
+
+    return $opensslargs;
 }
 
 /**

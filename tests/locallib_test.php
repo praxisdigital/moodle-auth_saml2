@@ -123,4 +123,48 @@ final class locallib_test extends \advanced_testcase {
             $this->assertFalse(file_exists($auth->certcrt));
         }
     }
+
+    public function test_create_certificate_creates_a_4096_bit_size_private_key_when_the_keysize_setting_is_set_to_4096(): void {
+        global $CFG;
+        require_once(__DIR__ . '/../setuplib.php');
+
+        $this->resetAfterTest();
+        $auth = get_auth_plugin('saml2');
+        set_config('keysize', 4096, 'auth_saml2');
+        $privatekeypass = get_config('auth_saml2', 'privatekeypass');
+
+        create_certificates($auth);
+
+        $host = (new \moodle_url($CFG->wwwroot))->get_host();
+        $path_to_key_file = $CFG->dataroot . "/saml2/" . $host .".pem";
+
+        $generated_priv_key = openssl_pkey_get_details(openssl_pkey_get_private('file://'.$path_to_key_file, $privatekeypass));
+
+        $key_bit_size = $generated_priv_key['bits'];
+
+        $this->assertEquals(4096, $key_bit_size);
+
+    }
+
+    public function test_create_certificate_falls_back_to_2048_bit_size_private_key_when_the_keysize_is_set_to_below_2048(): void {
+        global $CFG;
+        require_once(__DIR__ . '/../setuplib.php');
+
+        $this->resetAfterTest();
+        $auth = get_auth_plugin('saml2');
+        set_config('keysize', 1024, 'auth_saml2');
+        $privatekeypass = get_config('auth_saml2', 'privatekeypass');
+
+        create_certificates($auth);
+
+        $host = (new \moodle_url($CFG->wwwroot))->get_host();
+        $path_to_key_file = $CFG->dataroot . "/saml2/" . $host .".pem";
+
+        $generated_priv_key = openssl_pkey_get_details(openssl_pkey_get_private('file://'.$path_to_key_file, $privatekeypass));
+
+        $key_bit_size = $generated_priv_key['bits'];
+
+        $this->assertEquals(2048, $key_bit_size);
+
+    }
 }

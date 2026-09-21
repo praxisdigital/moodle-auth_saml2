@@ -408,5 +408,78 @@ function xmldb_auth_saml2_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2023100300, 'auth', 'saml2');
     }
 
+    if ($oldversion < 2026040204) {
+        // Define table auth_saml2_federations to be created.
+        $table = new xmldb_table('auth_saml2_federations');
+
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('shortname', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('metadataurl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('discourl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('buttonlabel', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_index('shortname', XMLDB_INDEX_UNIQUE, ['shortname']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026040204, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026040205) {
+        $table = new xmldb_table('auth_saml2_federations');
+
+        $field = new xmldb_field('tenantmode', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0', 'buttonlabel');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('tenantids', XMLDB_TYPE_TEXT, null, null, null, null, null, 'tenantmode');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026040205, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026040206) {
+        $table = new xmldb_table('auth_saml2_federations');
+
+        $field = new xmldb_field('enabled', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1', 'tenantids');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'enabled');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Initialise sortorder for existing rows.
+        if ($dbman->table_exists($table)) {
+            $federations = $DB->get_records('auth_saml2_federations', null, 'id ASC', 'id');
+            $order = 0;
+            foreach ($federations as $federation) {
+                $DB->set_field('auth_saml2_federations', 'sortorder', $order, ['id' => $federation->id]);
+                $order++;
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026040206, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026040207) {
+        // Former TENANT_MODE_SHARED_SPACE (3) is removed; treat as all tenants.
+        if ($dbman->table_exists('auth_saml2_federations')) {
+            $DB->set_field_select('auth_saml2_federations', 'tenantmode', 0, 'tenantmode = ?', [3]);
+        }
+
+        upgrade_plugin_savepoint(true, 2026040207, 'auth', 'saml2');
+    }
+
     return true;
 }

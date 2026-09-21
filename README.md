@@ -115,6 +115,43 @@ $CFG->auth_saml2_store = '\\auth_saml2\\redis_store'; # Use an alternate store
 $CFG->auth_saml2_redis_server = ''; # Required for the redis_store above
 ```
 
+### Federated login
+
+You can configure one or more federations (e.g. HAKA, eduGAIN) under
+**Site administration → Plugins → Authentication → SAML2 → Manage federated logins**.
+
+Each federation requires:
+
+* **Shortname** – unique, no spaces (used in the login URL)
+* **Federation metadata URL** – public federation metadata XML
+* **Federation discovery service URL** – IdP discovery (WAYF) endpoint
+* **Login button label** – text on the Moodle login page
+* **Login button logo** (optional) – image for the login button
+
+On **Moodle Workplace**, each federation also has **tenant availability**:
+
+* **All tenants** (default)
+* **Only the following tenants** (include list)
+* **All tenants except the following** (exclude list)
+
+On sites without Workplace / `tool_tenant`, tenant fields are hidden and ignored;
+federations behave as always available.
+
+Each federation adds its own button on the login page (subject to tenant rules).
+Clicking it sends the user to that federation’s discovery service. After the
+user picks an IdP, the cached federation metadata is used to complete the SAML
+session.
+
+This is independent of the IdP metadata / Available IdPs settings, which are
+unchanged. The global `$CFG->auth_saml2_disco_url` still applies when the user
+does not use a federation login button.
+
+### Local federation testing
+
+Use an external mock IdP (e.g. the wp50 stack service under `/mock-idp/`), not
+in-plugin fixtures. Point federation metadata and discovery URLs at that
+service. Behat still uses `tests/fixtures/mockidp` (Behat-gated only).
+
 
 ## Testing
 

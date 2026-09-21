@@ -173,10 +173,16 @@ class federation_manager {
      */
     public static function enable(int $id): bool {
         global $DB;
-        if (!self::get_by_id($id)) {
+        $federation = self::get_by_id($id);
+        if (!$federation) {
             return false;
         }
-        return $DB->set_field('auth_saml2_federations', 'enabled', 1, ['id' => $id]);
+        $result = $DB->set_field('auth_saml2_federations', 'enabled', 1, ['id' => $id]);
+        if ($result) {
+            $federation->enabled = 1;
+            event\federation_updated::create_from_federation($federation, ['enabled' => 1])->trigger();
+        }
+        return $result;
     }
 
     /**
@@ -187,10 +193,16 @@ class federation_manager {
      */
     public static function disable(int $id): bool {
         global $DB;
-        if (!self::get_by_id($id)) {
+        $federation = self::get_by_id($id);
+        if (!$federation) {
             return false;
         }
-        return $DB->set_field('auth_saml2_federations', 'enabled', 0, ['id' => $id]);
+        $result = $DB->set_field('auth_saml2_federations', 'enabled', 0, ['id' => $id]);
+        if ($result) {
+            $federation->enabled = 0;
+            event\federation_updated::create_from_federation($federation, ['enabled' => 0])->trigger();
+        }
+        return $result;
     }
 
     /**
@@ -304,6 +316,9 @@ class federation_manager {
             throw new \invalid_parameter_exception(get_string('federation_tenantids_required', 'auth_saml2'));
         }
 
+        $old = self::get_by_id($id);
+        $oldtenantids = self::get_tenant_ids($old);
+
         $record = new stdClass();
         $record->id = $id;
         $record->tenantmode = $mode;
@@ -312,6 +327,14 @@ class federation_manager {
             : null;
         $record->timemodified = time();
         $DB->update_record('auth_saml2_federations', $record);
+
+        $federation = self::get_by_id($id);
+        event\federation_tenant_availability_updated::create_from_federation($federation, [
+            'tenantmode' => $mode,
+            'tenantids' => $tenantids,
+            'oldtenantmode' => isset($old->tenantmode) ? (int) $old->tenantmode : self::TENANT_MODE_ALL,
+            'oldtenantids' => $oldtenantids,
+        ])->trigger();
     }
 
     /**
@@ -403,7 +426,8 @@ class federation_manager {
         // Fetch and write metadata before committing DB so invalid URLs fail early.
         self::fetch_and_store_metadata($record->metadataurl);
 
-        if (!empty($data->id)) {
+        $isupdate = !empty($data->id);
+        if ($isupdate) {
             $record->id = (int) $data->id;
             $old = self::get_by_id($record->id);
             if (!$old) {
@@ -438,6 +462,13 @@ class federation_manager {
             );
         }
 
+        $federation = self::get_by_id($id);
+        if ($isupdate) {
+            event\federation_updated::create_from_federation($federation)->trigger();
+        } else {
+            event\federation_created::create_from_federation($federation)->trigger();
+        }
+
         return $id;
     }
 
@@ -455,6 +486,8 @@ class federation_manager {
             return false;
         }
 
+        $event = event\federation_deleted::create_from_federation($record);
+
         $DB->delete_records('auth_saml2_federations', ['id' => $id]);
 
         $context = context_system::instance();
@@ -462,6 +495,8 @@ class federation_manager {
         $fs->delete_area_files($context->id, 'auth_saml2', self::LOGO_FILEAREA, $id);
 
         self::maybe_delete_metadata_file($record->metadataurl, $id);
+
+        $event->trigger();
 
         return true;
     }

@@ -337,4 +337,105 @@ final class federation_test extends \advanced_testcase {
         $this->assertEquals('FED1', $all[0]->shortname);
         $this->assertEquals('FED2', $all[1]->shortname);
     }
+
+    /**
+     * Enable/disable and delete must emit standard Moodle events.
+     *
+     * @covers \auth_saml2\event\federation_updated
+     * @covers \auth_saml2\event\federation_deleted
+     */
+    public function test_enable_disable_delete_events(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $fed = $this->create_federation(['shortname' => 'EVTFED', 'buttonlabel' => 'Event Fed']);
+
+        $sink = $this->redirectEvents();
+        federation_manager::disable((int) $fed->id);
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            static fn($e) => $e instanceof event\federation_updated
+        ));
+        $sink->clear();
+        $this->assertCount(1, $events);
+        $this->assertEquals(0, $events[0]->other['enabled']);
+        $this->assertEquals('EVTFED', $events[0]->other['shortname']);
+        $this->assertEquals((int) $fed->id, $events[0]->objectid);
+
+        federation_manager::enable((int) $fed->id);
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            static fn($e) => $e instanceof event\federation_updated
+        ));
+        $sink->clear();
+        $this->assertCount(1, $events);
+        $this->assertEquals(1, $events[0]->other['enabled']);
+
+        federation_manager::delete((int) $fed->id);
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            static fn($e) => $e instanceof event\federation_deleted
+        ));
+        $this->assertCount(1, $events);
+        $this->assertEquals('EVTFED', $events[0]->other['shortname']);
+        $this->assertEquals((int) $fed->id, $events[0]->objectid);
+        $this->assertStringContainsString('deleted', $events[0]->get_description());
+    }
+
+    /**
+     * Tenant availability changes emit a dedicated event.
+     *
+     * @covers \auth_saml2\event\federation_tenant_availability_updated
+     */
+    public function test_save_tenant_availability_event(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        if (!federation_manager::tenancy_available()) {
+            $this->markTestSkipped('tool_tenant not available');
+        }
+
+        $fed = $this->create_federation(['shortname' => 'TENVT', 'buttonlabel' => 'TenEvt']);
+        $tenants = array_values(\tool_tenant\tenancy::get_tenants());
+        $tid = (int) $tenants[0]->id;
+
+        $sink = $this->redirectEvents();
+        federation_manager::save_tenant_availability(
+            (int) $fed->id,
+            federation_manager::TENANT_MODE_INCLUDE,
+            [$tid]
+        );
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            static fn($e) => $e instanceof event\federation_tenant_availability_updated
+        ));
+        $this->assertCount(1, $events);
+        $this->assertEquals(federation_manager::TENANT_MODE_INCLUDE, $events[0]->other['tenantmode']);
+        $this->assertSame([$tid], $events[0]->other['tenantids']);
+        $this->assertEquals(federation_manager::TENANT_MODE_ALL, $events[0]->other['oldtenantmode']);
+        $this->assertEquals('TENVT', $events[0]->other['shortname']);
+        $this->assertStringContainsString('tenant availability', $events[0]->get_description());
+    }
+
+    /**
+     * Created/updated event factories expose expected name and description.
+     *
+     * @covers \auth_saml2\event\federation_created
+     * @covers \auth_saml2\event\federation_updated
+     */
+    public function test_federation_created_updated_event_factories(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $fed = $this->create_federation(['shortname' => 'FACTFED', 'buttonlabel' => 'Factory']);
+
+        $created = event\federation_created::create_from_federation($fed);
+        $this->assertEquals(get_string('eventfederationcreated', 'auth_saml2'), $created->get_name());
+        $this->assertStringContainsString('created', $created->get_description());
+        $this->assertEquals((int) $fed->id, $created->objectid);
+
+        $updated = event\federation_updated::create_from_federation($fed);
+        $this->assertEquals(get_string('eventfederationupdated', 'auth_saml2'), $updated->get_name());
+        $this->assertStringContainsString('updated', $updated->get_description());
+    }
 }

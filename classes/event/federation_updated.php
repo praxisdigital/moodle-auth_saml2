@@ -26,7 +26,6 @@ namespace auth_saml2\event;
 
 use core\event\base;
 use moodle_url;
-use stdClass;
 
 /**
  * Federation updated event.
@@ -49,11 +48,11 @@ class federation_updated extends base {
     /**
      * Create event from a federation record.
      *
-     * @param stdClass $federation
+     * @param object $federation
      * @param array $other
      * @return self
      */
-    public static function create_from_federation(stdClass $federation, array $other = []): self {
+    public static function create_from_federation(object $federation, array $other = []): self {
         $event = self::create([
             'objectid' => $federation->id,
             'context' => \context_system::instance(),

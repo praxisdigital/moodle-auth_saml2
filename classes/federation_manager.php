@@ -27,7 +27,6 @@ namespace auth_saml2;
 use context_system;
 use moodle_exception;
 use moodle_url;
-use stdClass;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -61,10 +60,10 @@ class federation_manager {
     /**
      * Decode tenant id list from a federation record.
      *
-     * @param stdClass $federation
+     * @param object $federation
      * @return int[]
      */
-    public static function get_tenant_ids(stdClass $federation): array {
+    public static function get_tenant_ids(object $federation): array {
         if (empty($federation->tenantids)) {
             return [];
         }
@@ -80,10 +79,10 @@ class federation_manager {
      *
      * Non-Workplace sites always return true.
      *
-     * @param stdClass $federation
+     * @param object $federation
      * @return bool
      */
-    public static function is_available_for_current_tenant(stdClass $federation): bool {
+    public static function is_available_for_current_tenant(object $federation): bool {
         if (!self::tenancy_available()) {
             return true;
         }
@@ -106,10 +105,10 @@ class federation_manager {
     /**
      * Human-readable tenant mode summary for admin lists.
      *
-     * @param stdClass $federation
+     * @param object $federation
      * @return string
      */
-    public static function get_tenant_mode_label(stdClass $federation): string {
+    public static function get_tenant_mode_label(object $federation): string {
         if (!self::tenancy_available()) {
             return '';
         }
@@ -146,7 +145,7 @@ class federation_manager {
      * Get federations ordered by sortorder then shortname.
      *
      * @param bool $onlyenabled When true, only enabled federations.
-     * @return stdClass[]
+     * @return object[]
      */
     public static function get_all(bool $onlyenabled = false): array {
         global $DB;
@@ -276,10 +275,10 @@ class federation_manager {
     /**
      * Whether federation is enabled (default true for legacy rows).
      *
-     * @param stdClass $federation
+     * @param object $federation
      * @return bool
      */
-    public static function is_enabled(stdClass $federation): bool {
+    public static function is_enabled(object $federation): bool {
         return !isset($federation->enabled) || (int) $federation->enabled === 1;
     }
 
@@ -319,7 +318,7 @@ class federation_manager {
         $old = self::get_by_id($id);
         $oldtenantids = self::get_tenant_ids($old);
 
-        $record = new stdClass();
+        $record = (object)[];
         $record->id = $id;
         $record->tenantmode = $mode;
         $record->tenantids = ($mode === self::TENANT_MODE_INCLUDE || $mode === self::TENANT_MODE_EXCLUDE)
@@ -341,7 +340,7 @@ class federation_manager {
      * Get a federation by id.
      *
      * @param int $id
-     * @return stdClass|false
+     * @return object|false
      */
     public static function get_by_id(int $id) {
         global $DB;
@@ -352,7 +351,7 @@ class federation_manager {
      * Get a federation by shortname.
      *
      * @param string $shortname
-     * @return stdClass|false
+     * @return object|false
      */
     public static function get_by_shortname(string $shortname) {
         global $DB;
@@ -383,15 +382,15 @@ class federation_manager {
     /**
      * Save federation record and metadata; store logo draft files.
      *
-     * @param stdClass $data Form data including optional logo draft itemid.
+     * @param object $data Form data including optional logo draft itemid.
      * @return int Federation id.
      * @throws moodle_exception
      */
-    public static function save(stdClass $data): int {
+    public static function save(object $data): int {
         global $DB;
 
         $now = time();
-        $record = new stdClass();
+        $record = (object)[];
         $record->shortname = trim($data->shortname);
         $record->metadataurl = trim($data->metadataurl);
         $record->discourl = trim($data->discourl);
@@ -549,10 +548,10 @@ class federation_manager {
     /**
      * Whether the metadata file exists for this federation.
      *
-     * @param stdClass $federation
+     * @param object $federation
      * @return bool
      */
-    public static function has_metadata_file(stdClass $federation): bool {
+    public static function has_metadata_file(object $federation): bool {
         return file_exists(self::get_metadata_filepath($federation->metadataurl));
     }
 

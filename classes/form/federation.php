@@ -82,6 +82,14 @@ class federation extends moodleform {
         );
         $mform->addHelpButton('logo', 'federation_logo', 'auth_saml2');
 
+        $mform->addElement('select', 'buttondisplay', get_string('federation_buttondisplay', 'auth_saml2'), [
+            federation_manager::BUTTON_AUTO => get_string('federation_buttondisplay_auto', 'auth_saml2'),
+            federation_manager::BUTTON_BOTH => get_string('federation_buttondisplay_both', 'auth_saml2'),
+        ]);
+        $mform->setDefault('buttondisplay', federation_manager::BUTTON_AUTO);
+        $mform->setType('buttondisplay', PARAM_INT);
+        $mform->addHelpButton('buttondisplay', 'federation_buttondisplay', 'auth_saml2');
+
         $this->add_action_buttons(true, get_string('federation_save', 'auth_saml2'));
     }
 
@@ -109,6 +117,15 @@ class federation extends moodleform {
         }
         if (trim($data['buttonlabel'] ?? '') === '') {
             $errors['buttonlabel'] = get_string('required');
+        }
+
+        $display = (int) ($data['buttondisplay'] ?? federation_manager::BUTTON_AUTO);
+        $allowed = [
+            federation_manager::BUTTON_AUTO,
+            federation_manager::BUTTON_BOTH,
+        ];
+        if (!in_array($display, $allowed, true)) {
+            $errors['buttondisplay'] = get_string('federation_buttondisplay_invalid', 'auth_saml2');
         }
 
         return $errors;

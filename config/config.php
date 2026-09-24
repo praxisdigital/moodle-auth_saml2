@@ -31,6 +31,9 @@ global $CFG, $saml2auth, $saml2config;
 
 $metadatasources = [];
 foreach ($saml2auth->metadataentities as $idpentity) {
+    if (federation_manager::is_federation_entityid($idpentity->entityid)) {
+        continue;
+    }
     $metadataurlhash = md5($idpentity->metadataurl);
     $metadatasources[$metadataurlhash] = [
         'type' => 'xml',

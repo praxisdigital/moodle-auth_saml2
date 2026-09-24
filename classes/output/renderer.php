@@ -129,7 +129,7 @@ class renderer extends plugin_renderer_base {
                 $links .= ' ' . html_writer::link('#', $tenanticon, [
                     'data-action' => 'show-federation-tenantavailability',
                     'data-id' => $federation->id,
-                    'data-name' => $federation->buttonlabel,
+                    'data-name' => $federation->shortname,
                     'title' => $tenantstr,
                 ]);
             }

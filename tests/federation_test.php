@@ -50,6 +50,7 @@ final class federation_test extends \advanced_testcase {
             'metadataurl' => 'https://example.org/federation-metadata.xml',
             'discourl' => 'https://example.org/DS',
             'buttonlabel' => 'Login with HAKA',
+            'buttondisplay' => federation_manager::BUTTON_AUTO,
             'tenantmode' => federation_manager::TENANT_MODE_ALL,
             'tenantids' => null,
             'enabled' => 1,
@@ -76,6 +77,23 @@ final class federation_test extends \advanced_testcase {
         }
 
         return $DB->get_record('auth_saml2_federations', ['id' => $record->id]);
+    }
+
+    /**
+     * Store a tiny PNG as the federation button logo.
+     *
+     * @param int $federationid
+     */
+    private function store_logo(int $federationid): void {
+        $fs = get_file_storage();
+        $fs->create_file_from_string([
+            'contextid' => \context_system::instance()->id,
+            'component' => 'auth_saml2',
+            'filearea' => federation_manager::LOGO_FILEAREA,
+            'itemid' => $federationid,
+            'filepath' => '/',
+            'filename' => 'logo.png',
+        ], base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
     }
 
     public function test_validate_shortname(): void {
@@ -131,6 +149,7 @@ final class federation_test extends \advanced_testcase {
         $list = $auth->loginpage_idp_list('/');
         $this->assertCount(1, $list);
         $this->assertNull($list[0]['url']->get_param('federation'));
+        $this->assertNotEquals(federation_manager::idp_md5('HAKA'), $list[0]['url']->get_param('idp'));
 
         // Add two federations.
         $this->create_federation(['shortname' => 'HAKA', 'buttonlabel' => 'Login HAKA']);
@@ -150,12 +169,14 @@ final class federation_test extends \advanced_testcase {
         $this->assertContains('Login eduGAIN', $names);
 
         $fedurls = array_filter($list, static function ($item) {
-            return $item['url']->get_param('federation') !== null;
+            $idp = $item['url']->get_param('idp');
+            return $idp === federation_manager::idp_md5('HAKA') || $idp === federation_manager::idp_md5('eduGAIN');
         });
         $this->assertCount(2, $fedurls);
         foreach ($fedurls as $item) {
             $this->assertEquals('off', $item['url']->get_param('passive'));
             $this->assertEquals('/', $item['url']->get_param('wants'));
+            $this->assertNull($item['url']->get_param('federation'));
         }
     }
 
@@ -169,7 +190,165 @@ final class federation_test extends \advanced_testcase {
         $list = $auth->loginpage_idp_list('/');
         $this->assertCount(1, $list);
         $this->assertEquals('Login HAKA', $list[0]['name']);
-        $this->assertEquals('HAKA', $list[0]['url']->get_param('federation'));
+        $this->assertEquals(federation_manager::idp_md5('HAKA'), $list[0]['url']->get_param('idp'));
+        $this->assertNull($list[0]['url']->get_param('federation'));
+    }
+
+    public function test_save_skips_metadata_fetch_when_cache_exists(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $fed = $this->create_federation([
+            'shortname' => 'HAKA',
+            'buttonlabel' => 'Login HAKA',
+            'metadataurl' => 'https://wp50.m.dev/mock-idp/metadata',
+        ]);
+        $path = federation_manager::get_metadata_filepath($fed->metadataurl);
+        $this->assertTrue(file_exists($path));
+        $before = filemtime($path);
+
+        $id = federation_manager::save((object) [
+            'id' => $fed->id,
+            'shortname' => 'HAKA',
+            'metadataurl' => $fed->metadataurl,
+            'discourl' => $fed->discourl,
+            'buttonlabel' => 'Login HAKA logo',
+        ]);
+
+        $saved = $DB->get_record('auth_saml2_federations', ['id' => $id]);
+        $this->assertEquals('Login HAKA logo', $saved->buttonlabel);
+        $this->assertTrue(file_exists($path));
+        $this->assertEquals($before, filemtime($path));
+    }
+
+    public function test_login_button_display_modes(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $fed = $this->create_federation([
+            'shortname' => 'HAKA',
+            'buttonlabel' => 'Login HAKA',
+            'buttondisplay' => federation_manager::BUTTON_AUTO,
+        ]);
+        $auth = get_auth_plugin('saml2');
+        $list = $auth->loginpage_idp_list('/');
+        $this->assertEquals('Login HAKA', $list[0]['name']);
+        $this->assertEmpty($list[0]['iconurl']);
+
+        $this->store_logo((int) $fed->id);
+        $DB->set_field('auth_saml2_federations', 'buttondisplay', federation_manager::BUTTON_AUTO, ['id' => $fed->id]);
+        $auth = get_auth_plugin('saml2');
+        $list = $auth->loginpage_idp_list('/');
+        $this->assertSame('', $list[0]['name']);
+        $this->assertNotEmpty($list[0]['iconurl']);
+
+        $DB->set_field('auth_saml2_federations', 'buttondisplay', federation_manager::BUTTON_BOTH, ['id' => $fed->id]);
+        $auth = get_auth_plugin('saml2');
+        $list = $auth->loginpage_idp_list('/');
+        $this->assertEquals('Login HAKA', $list[0]['name']);
+        $this->assertNotEmpty($list[0]['iconurl']);
+
+        $fs = get_file_storage();
+        $fs->delete_area_files(
+            \context_system::instance()->id,
+            'auth_saml2',
+            federation_manager::LOGO_FILEAREA,
+            (int) $fed->id
+        );
+        $auth = get_auth_plugin('saml2');
+        $list = $auth->loginpage_idp_list('/');
+        $this->assertEquals('Login HAKA', $list[0]['name']);
+        $this->assertEmpty($list[0]['iconurl']);
+    }
+
+    public function test_availableidps_lists_federation_as_always_active(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $this->create_federation(['shortname' => 'HAKA', 'buttonlabel' => 'Login HAKA']);
+        federation_manager::sync_active_idp(federation_manager::get_by_shortname('HAKA'));
+
+        $federationidps = [];
+        foreach (federation_manager::get_all() as $federation) {
+            $federationidps[federation_manager::idp_md5($federation->shortname)] = [
+                'name' => $federation->shortname,
+                'entityid' => federation_manager::idp_entityid($federation->shortname),
+                'activeidp' => 1,
+            ];
+        }
+        $form = new \auth_saml2\form\availableidps(null, [
+            'metadataentities' => auth_saml2_get_idps(false, true),
+            'federationidps' => $federationidps,
+        ]);
+        $html = $form->render();
+        $this->assertStringContainsString('HAKA', $html);
+        $this->assertStringContainsString(get_string('federation_alwaysactive', 'auth_saml2'), $html);
+        $this->assertStringNotContainsString('federation:' . 'HAKA' . '[activeidp]', $html);
+        $this->assertStringNotContainsString(federation_manager::idp_md5('HAKA') . '[activeidp]', $html);
+    }
+
+    public function test_tenant_availability_trigger_uses_shortname(): void {
+        $this->resetAfterTest();
+
+        if (!federation_manager::tenancy_available()) {
+            $this->markTestSkipped('tool_tenant not available');
+        }
+
+        $fed = $this->create_federation(['shortname' => 'HAKA', 'buttonlabel' => 'Login HAKA']);
+        $renderer = $GLOBALS['PAGE']->get_renderer('auth_saml2');
+        $html = $renderer->federations_table([$fed]);
+        $this->assertStringContainsString('data-name="HAKA"', $html);
+        $this->assertStringNotContainsString('data-name="Login HAKA"', $html);
+    }
+
+    public function test_save_renames_synthetic_idp(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $fed = $this->create_federation(['shortname' => 'HAKA', 'buttonlabel' => 'Login HAKA']);
+        federation_manager::sync_active_idp($fed);
+        $oldentityid = federation_manager::idp_entityid('HAKA');
+        $this->assertTrue($DB->record_exists('auth_saml2_idps', ['entityid' => $oldentityid]));
+
+        federation_manager::save((object) [
+            'id' => $fed->id,
+            'shortname' => 'eduGAIN',
+            'metadataurl' => $fed->metadataurl,
+            'discourl' => $fed->discourl,
+            'buttonlabel' => 'Login HAKA',
+        ]);
+
+        $this->assertFalse($DB->record_exists('auth_saml2_idps', ['entityid' => $oldentityid]));
+        $new = $DB->get_record('auth_saml2_idps', ['entityid' => federation_manager::idp_entityid('eduGAIN')]);
+        $this->assertNotFalse($new);
+        $this->assertEquals(1, (int) $new->activeidp);
+    }
+
+    public function test_sync_creates_active_idp_and_delete_removes_it(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $fed = $this->create_federation(['shortname' => 'HAKA', 'buttonlabel' => 'Login HAKA']);
+        federation_manager::sync_active_idp($fed);
+
+        $entityid = federation_manager::idp_entityid('HAKA');
+        $idp = $DB->get_record('auth_saml2_idps', ['entityid' => $entityid]);
+        $this->assertNotFalse($idp);
+        $this->assertEquals(1, (int) $idp->activeidp);
+        $this->assertEquals(0, (int) $idp->defaultidp);
+        $this->assertEquals('Login HAKA', $idp->displayname);
+        $this->assertFalse(federation_manager::get_by_idp_md5(md5('https://idp.example.org')));
+        $this->assertEquals('HAKA', federation_manager::get_by_idp_md5(federation_manager::idp_md5('HAKA'))->shortname);
+
+        $idps = auth_saml2_get_idps(false, true);
+        $this->assertEmpty($idps);
+
+        federation_manager::disable((int) $fed->id);
+        $idp = $DB->get_record('auth_saml2_idps', ['entityid' => $entityid]);
+        $this->assertEquals(1, (int) $idp->activeidp);
+
+        federation_manager::delete((int) $fed->id);
+        $this->assertFalse($DB->record_exists('auth_saml2_idps', ['entityid' => $entityid]));
     }
 
     public function test_loginpage_idp_list_unchanged_without_federations(): void {

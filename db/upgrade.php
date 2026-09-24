@@ -22,6 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use auth_saml2\federation_manager;
 use auth_saml2\task\metadata_refresh;
 use auth_saml2\ssl_algorithms;
 
@@ -417,6 +418,7 @@ function xmldb_auth_saml2_upgrade($oldversion) {
         $table->add_field('metadataurl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
         $table->add_field('discourl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
         $table->add_field('buttonlabel', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('buttondisplay', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0');
         $table->add_field('tenantmode', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0');
         $table->add_field('tenantids', XMLDB_TYPE_TEXT, null, null, null, null, null);
         $table->add_field('enabled', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
@@ -432,6 +434,67 @@ function xmldb_auth_saml2_upgrade($oldversion) {
         }
 
         upgrade_plugin_savepoint(true, 2026092100, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026092400) {
+        // Existing federations must be active IdPs so Workplace accepts their login buttons.
+        foreach (federation_manager::get_all() as $federation) {
+            federation_manager::sync_active_idp($federation);
+        }
+
+        upgrade_plugin_savepoint(true, 2026092400, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026092401) {
+        $table = new xmldb_table('auth_saml2_federations');
+        $field = new xmldb_field('buttondisplay', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0', 'buttonlabel');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $fs = get_file_storage();
+        $contextid = context_system::instance()->id;
+        foreach (federation_manager::get_all() as $federation) {
+            $files = $fs->get_area_files(
+                $contextid,
+                'auth_saml2',
+                federation_manager::LOGO_FILEAREA,
+                (int) $federation->id,
+                'itemid, filepath, filename',
+                false
+            );
+            if ($files) {
+                $DB->set_field(
+                    'auth_saml2_federations',
+                    'buttondisplay',
+                    federation_manager::BUTTON_AUTO,
+                    ['id' => $federation->id]
+                );
+            }
+            $federation = federation_manager::get_by_id((int) $federation->id);
+            federation_manager::sync_active_idp($federation);
+        }
+
+        upgrade_plugin_savepoint(true, 2026092401, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026092402) {
+        // Previous both (2) is now 1. Previous logo-only (1) is the new default (0).
+        $DB->set_field('auth_saml2_federations', 'buttondisplay', federation_manager::BUTTON_BOTH, ['buttondisplay' => 2]);
+        foreach (federation_manager::get_all() as $federation) {
+            federation_manager::sync_active_idp($federation);
+        }
+
+        upgrade_plugin_savepoint(true, 2026092402, 'auth', 'saml2');
+    }
+
+    if ($oldversion < 2026092403) {
+        // A configured federation is always an active IdP, including when its login button is disabled.
+        foreach (federation_manager::get_all() as $federation) {
+            federation_manager::sync_active_idp($federation);
+        }
+
+        upgrade_plugin_savepoint(true, 2026092403, 'auth', 'saml2');
     }
 
     return true;

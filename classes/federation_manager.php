@@ -41,12 +41,20 @@ class federation_manager {
     /** File area for federation button logos. */
     public const LOGO_FILEAREA = 'federationlogo';
 
+    /** Prefix for the synthetic active IdP entityid that represents a federation. */
+    public const IDP_ENTITY_PREFIX = 'federation:';
+
     /** Visible for all tenants (default). */
     public const TENANT_MODE_ALL = 0;
     /** Visible only for selected tenants. */
     public const TENANT_MODE_INCLUDE = 1;
     /** Visible for all tenants except selected. */
     public const TENANT_MODE_EXCLUDE = 2;
+
+    /** Logo when a file exists, otherwise the label. */
+    public const BUTTON_AUTO = 0;
+    /** Logo before the label, or the label when there is no logo. */
+    public const BUTTON_BOTH = 1;
 
     /**
      * Whether Moodle Workplace tenancy is available.
@@ -179,6 +187,7 @@ class federation_manager {
         $result = $DB->set_field('auth_saml2_federations', 'enabled', 1, ['id' => $id]);
         if ($result) {
             $federation->enabled = 1;
+            self::sync_active_idp($federation);
             event\federation_updated::create_from_federation($federation, ['enabled' => 1])->trigger();
         }
         return $result;
@@ -199,6 +208,7 @@ class federation_manager {
         $result = $DB->set_field('auth_saml2_federations', 'enabled', 0, ['id' => $id]);
         if ($result) {
             $federation->enabled = 0;
+            self::sync_active_idp($federation);
             event\federation_updated::create_from_federation($federation, ['enabled' => 0])->trigger();
         }
         return $result;
@@ -395,6 +405,7 @@ class federation_manager {
         $record->metadataurl = trim($data->metadataurl);
         $record->discourl = trim($data->discourl);
         $record->buttonlabel = trim($data->buttonlabel);
+        $record->buttondisplay = self::normalise_button_display($data->buttondisplay ?? self::BUTTON_AUTO);
         $record->timemodified = $now;
 
         // Tenant availability (Workplace only; ignored elsewhere).
@@ -422,16 +433,24 @@ class federation_manager {
             throw new \invalid_parameter_exception($error);
         }
 
-        // Fetch and write metadata before committing DB so invalid URLs fail early.
-        self::fetch_and_store_metadata($record->metadataurl);
-
         $isupdate = !empty($data->id);
+        $old = null;
         if ($isupdate) {
-            $record->id = (int) $data->id;
-            $old = self::get_by_id($record->id);
+            $old = self::get_by_id((int) $data->id);
             if (!$old) {
                 throw new moodle_exception('invalidrecord', 'error');
             }
+        }
+
+        // Refetch only for a new federation, a changed metadata URL, or a missing cache.
+        // Editing a logo must not fail when an already cached URL cannot be reached.
+        $metadatachanged = !$old || $old->metadataurl !== $record->metadataurl;
+        if ($metadatachanged || !self::has_metadata_file($record)) {
+            self::fetch_and_store_metadata($record->metadataurl);
+        }
+
+        if ($isupdate) {
+            $record->id = (int) $data->id;
             // If metadata URL changed, remove old cached file when unused.
             if ($old->metadataurl !== $record->metadataurl) {
                 self::maybe_delete_metadata_file($old->metadataurl, $record->id);
@@ -462,6 +481,10 @@ class federation_manager {
         }
 
         $federation = self::get_by_id($id);
+        if ($isupdate && $old && $old->shortname !== $federation->shortname) {
+            self::delete_active_idp($old->shortname);
+        }
+        self::sync_active_idp($federation);
         if ($isupdate) {
             event\federation_updated::create_from_federation($federation)->trigger();
         } else {
@@ -488,6 +511,7 @@ class federation_manager {
         $event = event\federation_deleted::create_from_federation($record);
 
         $DB->delete_records('auth_saml2_federations', ['id' => $id]);
+        self::delete_active_idp($record->shortname);
 
         $context = context_system::instance();
         $fs = get_file_storage();
@@ -553,6 +577,132 @@ class federation_manager {
      */
     public static function has_metadata_file(object $federation): bool {
         return file_exists(self::get_metadata_filepath($federation->metadataurl));
+    }
+
+    /**
+     * Restrict button display to a known mode.
+     *
+     * @param int|string $display
+     * @return int
+     */
+    public static function normalise_button_display($display): int {
+        $display = (int) $display;
+        $allowed = [self::BUTTON_AUTO, self::BUTTON_BOTH];
+        return in_array($display, $allowed, true) ? $display : self::BUTTON_AUTO;
+    }
+
+    /**
+     * Label and logo to render on the login button for the selected display mode.
+     *
+     * Default prefers the logo. Both always keeps the label, with the logo first when present.
+     *
+     * @param object $federation
+     * @return array{name: string, iconurl: moodle_url|null}
+     */
+    public static function login_button_parts(object $federation): array {
+        $display = self::normalise_button_display($federation->buttondisplay ?? self::BUTTON_AUTO);
+        $logourl = self::get_logo_url((int) $federation->id);
+        $showlogo = (bool) $logourl;
+        $showlabel = $display === self::BUTTON_BOTH || !$showlogo;
+        return [
+            'name' => $showlabel ? $federation->buttonlabel : '',
+            'iconurl' => $showlogo ? $logourl : null,
+        ];
+    }
+
+    /**
+     * Entity id used for the synthetic active IdP that represents a federation.
+     *
+     * Workplace treats login buttons as active IdPs only when they pass an idp
+     * hash. This entity id is that IdP; it is not a real SAML entity.
+     *
+     * @param string $shortname
+     * @return string
+     */
+    public static function idp_entityid(string $shortname): string {
+        return self::IDP_ENTITY_PREFIX . $shortname;
+    }
+
+    /**
+     * md5 of the synthetic IdP entity id. This is the login button idp param.
+     *
+     * @param string $shortname
+     * @return string
+     */
+    public static function idp_md5(string $shortname): string {
+        return md5(self::idp_entityid($shortname));
+    }
+
+    /**
+     * Whether an IdP entity id belongs to a federation login, not a configured IdP.
+     *
+     * @param string $entityid
+     * @return bool
+     */
+    public static function is_federation_entityid(string $entityid): bool {
+        return strpos($entityid, self::IDP_ENTITY_PREFIX) === 0;
+    }
+
+    /**
+     * Federation for a login idp hash, if that hash is a synthetic federation IdP.
+     *
+     * @param string $md5entityid
+     * @return object|false
+     */
+    public static function get_by_idp_md5(string $md5entityid) {
+        if ($md5entityid === '') {
+            return false;
+        }
+        foreach (self::get_all() as $federation) {
+            if (self::idp_md5($federation->shortname) === $md5entityid) {
+                return $federation;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Keep one active IdP row per federation so it is always an active IdP.
+     *
+     * The enabled flag only controls the login button. It must not clear activeidp.
+     *
+     * @param object $federation
+     */
+    public static function sync_active_idp(object $federation): void {
+        global $DB;
+
+        $entityid = self::idp_entityid($federation->shortname);
+        $button = self::login_button_parts($federation);
+        $record = (object) [
+            'metadataurl' => $federation->metadataurl,
+            'entityid' => $entityid,
+            'activeidp' => 1,
+            'defaultidp' => 0,
+            'adminidp' => 0,
+            'defaultname' => $federation->buttonlabel,
+            'displayname' => $button['name'],
+            'logo' => $button['iconurl'] ? $button['iconurl']->out(false) : '',
+            'alias' => null,
+            'whitelist' => null,
+        ];
+
+        $existing = $DB->get_record('auth_saml2_idps', ['entityid' => $entityid]);
+        if ($existing) {
+            $record->id = $existing->id;
+            $DB->update_record('auth_saml2_idps', $record);
+            return;
+        }
+        $DB->insert_record('auth_saml2_idps', $record);
+    }
+
+    /**
+     * Remove the synthetic active IdP for a federation shortname.
+     *
+     * @param string $shortname
+     */
+    public static function delete_active_idp(string $shortname): void {
+        global $DB;
+        $DB->delete_records('auth_saml2_idps', ['entityid' => self::idp_entityid($shortname)]);
     }
 
     /**

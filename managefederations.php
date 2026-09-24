@@ -93,6 +93,9 @@ if ($action === 'edit' || $action === 'add') {
         $data['metadataurl'] = $federation->metadataurl;
         $data['discourl'] = $federation->discourl;
         $data['buttonlabel'] = $federation->buttonlabel;
+        $data['buttondisplay'] = isset($federation->buttondisplay)
+            ? (int) $federation->buttondisplay
+            : federation_manager::BUTTON_AUTO;
     }
     $mform->set_data($data);
 

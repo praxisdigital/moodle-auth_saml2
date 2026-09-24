@@ -42,11 +42,21 @@ if (!empty($SESSION->saml2federation)) {
     }
 }
 
-if (!empty($SESSION->saml2idp) && array_key_exists($SESSION->saml2idp, $saml2auth->metadataentities)) {
+if (
+    !empty($SESSION->saml2idp) &&
+    array_key_exists($SESSION->saml2idp, $saml2auth->metadataentities) &&
+    !federation_manager::is_federation_entityid($saml2auth->metadataentities[$SESSION->saml2idp]->entityid)
+) {
     $idpentityid = $saml2auth->metadataentities[$SESSION->saml2idp]->entityid;
 } else if (!empty($saml2auth->metadataentities)) {
     // Case for specifying no $SESSION IdP, select the first configured IdP as the default.
-    $idpentityid = reset($saml2auth->metadataentities)->entityid;
+    $idpentityid = null;
+    foreach ($saml2auth->metadataentities as $idpentity) {
+        if (!federation_manager::is_federation_entityid($idpentity->entityid)) {
+            $idpentityid = $idpentity->entityid;
+            break;
+        }
+    }
 } else {
     $idpentityid = null;
 }

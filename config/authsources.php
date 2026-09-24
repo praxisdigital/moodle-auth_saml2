@@ -22,6 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use auth_saml2\federation_manager;
 use auth_saml2\ssl_signing_algorithm;
 
 defined('MOODLE_INTERNAL') || die();
@@ -32,11 +33,32 @@ $config = [];
 
 $baseurl = optional_param('baseurl', $CFG->wwwroot, PARAM_URL);
 
-if (!empty($SESSION->saml2idp) && array_key_exists($SESSION->saml2idp, $saml2auth->metadataentities)) {
+// Per-request federation discovery overrides global disco and fixed IdP.
+$federationdisco = null;
+if (!empty($SESSION->saml2federation)) {
+    $federation = federation_manager::get_by_shortname($SESSION->saml2federation);
+    if ($federation) {
+        $federationdisco = $federation->discourl;
+    }
+}
+
+if (
+    !empty($SESSION->saml2idp) &&
+    array_key_exists($SESSION->saml2idp, $saml2auth->metadataentities) &&
+    !federation_manager::is_federation_entityid($saml2auth->metadataentities[$SESSION->saml2idp]->entityid)
+) {
     $idpentityid = $saml2auth->metadataentities[$SESSION->saml2idp]->entityid;
-} else {
+} else if (!empty($saml2auth->metadataentities)) {
     // Case for specifying no $SESSION IdP, select the first configured IdP as the default.
-    $idpentityid = reset($saml2auth->metadataentities)->entityid;
+    $idpentityid = null;
+    foreach ($saml2auth->metadataentities as $idpentity) {
+        if (!federation_manager::is_federation_entityid($idpentity->entityid)) {
+            $idpentityid = $idpentity->entityid;
+            break;
+        }
+    }
+} else {
+    $idpentityid = null;
 }
 
 $defaultspentityid = "$baseurl/auth/saml2/sp/metadata.php";
@@ -45,7 +67,7 @@ $defaultspentityid = "$baseurl/auth/saml2/sp/metadata.php";
 $attributes = [];
 $attributesrequired = [];
 
-foreach (explode(PHP_EOL, $saml2auth->config->requestedattributes) as $attr) {
+foreach (explode(PHP_EOL, $saml2auth->config->requestedattributes ?? '') as $attr) {
     $attr = trim($attr);
     if (empty($attr)) {
         continue;
@@ -56,13 +78,20 @@ foreach (explode(PHP_EOL, $saml2auth->config->requestedattributes) as $attr) {
     }
     $attributes[] = $attr;
 }
+
+// Resolve disco URL: session federation first, then global CFG, else none.
+$discourl = $federationdisco;
+if ($discourl === null && !empty($CFG->auth_saml2_disco_url)) {
+    $discourl = $CFG->auth_saml2_disco_url;
+}
+
 // Moodle language code does not always map to the iso code, which is preferable for xml:lang attributes.
 $lang = get_string('iso6391', 'core_langconfig');
 $config[$saml2auth->spname] = [
     'saml:SP',
     'entityID' => !empty($saml2auth->config->spentityid) ? $saml2auth->config->spentityid : $defaultspentityid,
-    'discoURL' => !empty($CFG->auth_saml2_disco_url) ? $CFG->auth_saml2_disco_url : null,
-    'idp' => empty($CFG->auth_saml2_disco_url) ? $idpentityid : null,
+    'discoURL' => $discourl,
+    'idp' => empty($discourl) ? $idpentityid : null,
     'NameIDPolicy' => ['Format' => $saml2auth->config->nameidpolicy, 'AllowCreate' => true],
     'OrganizationName' => [
         $lang => $SITE->shortname,

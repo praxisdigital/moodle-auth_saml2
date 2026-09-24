@@ -70,6 +70,15 @@ if ($ADMIN->fulltree) {
         $CFG->wwwroot . '/auth/saml2/availableidps.php'
     ));
 
+    // Manage federated logins.
+    $settings->add(new setting_button(
+        'auth_saml2/managefederations',
+        get_string('federation_add', 'auth_saml2'),
+        get_string('federation_add_help', 'auth_saml2'),
+        get_string('federation_manage', 'auth_saml2'),
+        $CFG->wwwroot . '/auth/saml2/managefederations.php'
+    ));
+
     // Display IDP Link.
     $settings->add(new admin_setting_configselect(
         'auth_saml2/showidplink',

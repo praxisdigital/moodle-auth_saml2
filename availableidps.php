@@ -42,9 +42,19 @@ auth_saml2_admin_nav(
 $PAGE->requires->css('/auth/saml2/styles.css');
 
 $metadataentities = auth_saml2_get_idps(false, true);
+$federationidps = [];
+foreach (\auth_saml2\federation_manager::get_all() as $federation) {
+    $entityid = \auth_saml2\federation_manager::idp_entityid($federation->shortname);
+    $federationidps[\auth_saml2\federation_manager::idp_md5($federation->shortname)] = [
+        'name' => $federation->shortname,
+        'entityid' => $entityid,
+        'activeidp' => 1,
+    ];
+}
 
 $data = [
     'metadataentities' => $metadataentities,
+    'federationidps' => $federationidps,
 ];
 
 $action = new moodle_url('/auth/saml2/availableidps.php');
@@ -58,6 +68,13 @@ if ($fromform = $mform->get_data()) {
     // Go through each idp and update its flags.
     foreach ($fromform->metadataentities as $idpentities) {
         foreach ($idpentities as $idpentity) {
+            if (empty($idpentity->id)) {
+                continue;
+            }
+            $existing = $DB->get_record('auth_saml2_idps', ['id' => $idpentity->id], 'id, entityid');
+            if (!$existing || \auth_saml2\federation_manager::is_federation_entityid($existing->entityid)) {
+                continue;
+            }
             $DB->update_record('auth_saml2_idps', (object) $idpentity);
         }
     }

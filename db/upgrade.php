@@ -409,89 +409,172 @@ function xmldb_auth_saml2_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2023100300, 'auth', 'saml2');
     }
 
-    if ($oldversion < 2026092100) {
+    if ($oldversion < 2026092403) {
         // Define table auth_saml2_federations to be created (final schema).
         $table = new xmldb_table('auth_saml2_federations');
 
-        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
-        $table->add_field('shortname', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('metadataurl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('discourl', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('buttonlabel', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('buttondisplay', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0');
-        $table->add_field('tenantmode', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0');
-        $table->add_field('tenantids', XMLDB_TYPE_TEXT, null, null, null, null, null);
-        $table->add_field('enabled', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '1');
-        $table->add_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
-        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
-        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $columns = [
+            'id' => 'id',
+            'shortname' => 'shortname',
+            'metadataurl' => 'metadataurl',
+            'discourl' => 'discourl',
+            'buttonlabel' => 'buttonlabel',
+            'buttondisplay' => 'buttondisplay',
+            'tenantmode' => 'tenantmode',
+            'tenantids' => 'tenantids',
+            'enabled' => 'enabled',
+            'sortorder' => 'sortorder',
+            'timecreated' => 'timecreated',
+            'timemodified' => 'timemodified',
+        ];
+        $required_columns = [
+            $columns['id'] => $columns['id'],
+            $columns['shortname'] => $columns['shortname'],
+            $columns['metadataurl'] => $columns['metadataurl'],
+            $columns['discourl'] => $columns['discourl'],
+            $columns['buttonlabel'] => $columns['buttonlabel'],
+        ];
+        $defaults = [
+            $columns['id'] => null,
+            $columns['shortname'] => null,
+            $columns['metadataurl'] => null,
+            $columns['discourl'] => null,
+            $columns['buttonlabel'] => null,
+            $columns['buttondisplay'] => '0',
+            $columns['tenantmode'] => '0',
+            $columns['tenantids'] => null,
+            $columns['enabled'] => '1',
+            $columns['sortorder'] => '0',
+            $columns['timecreated'] => '0',
+            $columns['timemodified'] => '0',
+        ];
 
-        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
-        $table->add_index('shortname', XMLDB_INDEX_UNIQUE, ['shortname']);
+        $table->add_field($columns['id'], XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field($columns['shortname'], XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, null);
+        $table->add_field($columns['metadataurl'], XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field($columns['discourl'], XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field($columns['buttonlabel'], XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field(
+            $columns['buttondisplay'],
+            XMLDB_TYPE_INTEGER,
+            '4',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            $defaults[$columns['buttondisplay']]
+        );
+        $table->add_field(
+            $columns['tenantmode'],
+            XMLDB_TYPE_INTEGER,
+            '4',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            $defaults[$columns['tenantmode']]
+        );
+        $table->add_field(
+            $columns['tenantids'],
+            XMLDB_TYPE_TEXT,
+            null,
+            null,
+            null,
+            null,
+            $defaults[$columns['tenantids']]
+        );
+        $table->add_field(
+            $columns['enabled'],
+            XMLDB_TYPE_INTEGER,
+            '4',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            $defaults[$columns['enabled']]
+        );
+        $table->add_field(
+            $columns['sortorder'],
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            $defaults[$columns['sortorder']]
+        );
+        $table->add_field(
+            $columns['timecreated'],
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            $defaults[$columns['timecreated']]
+        );
+        $table->add_field(
+            $columns['timemodified'],
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            $defaults[$columns['timemodified']]
+        );
 
-        if (!$dbman->table_exists($table)) {
-            $dbman->create_table($table);
+        $table->add_key(
+            'primary',
+            XMLDB_KEY_PRIMARY,
+            [$columns['id']]
+        );
+        $table->add_index(
+            $columns['shortname'],
+            XMLDB_INDEX_UNIQUE,
+            [$columns['shortname']]
+        );
+
+        $federations = [];
+        if ($dbman->table_exists($table)) {
+            // Backup federation data
+            $federations = $DB->get_records('auth_saml2_federations');
+            $dbman->drop_table($table);
         }
+        $dbman->create_table($table);
 
-        upgrade_plugin_savepoint(true, 2026092100, 'auth', 'saml2');
-    }
 
-    if ($oldversion < 2026092400) {
-        // Existing federations must be active IdPs so Workplace accepts their login buttons.
-        foreach (federation_manager::get_all() as $federation) {
-            federation_manager::sync_active_idp($federation);
-        }
-
-        upgrade_plugin_savepoint(true, 2026092400, 'auth', 'saml2');
-    }
-
-    if ($oldversion < 2026092401) {
-        $table = new xmldb_table('auth_saml2_federations');
-        $field = new xmldb_field('buttondisplay', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '0', 'buttonlabel');
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
-        $fs = get_file_storage();
-        $contextid = context_system::instance()->id;
-        foreach (federation_manager::get_all() as $federation) {
-            $files = $fs->get_area_files(
-                $contextid,
-                'auth_saml2',
-                federation_manager::LOGO_FILEAREA,
-                (int) $federation->id,
-                'itemid, filepath, filename',
-                false
-            );
-            if ($files) {
-                $DB->set_field(
-                    'auth_saml2_federations',
-                    'buttondisplay',
-                    federation_manager::BUTTON_AUTO,
-                    ['id' => $federation->id]
-                );
+        $has_require_columns = static function (array $item) use ($required_columns): bool {
+            foreach ($required_columns as $column) {
+                if (!isset($item[$column])) {
+                    return false;
+                }
             }
-            $federation = federation_manager::get_by_id((int) $federation->id);
-            federation_manager::sync_active_idp($federation);
+            return true;
+        };
+
+        $imported = [];
+        foreach ($federations as $federation) {
+            $data = (array)$federation;
+            if (!$has_require_columns($data)) {
+                continue;
+            }
+            foreach ($columns as $column) {
+                $data[$column] ??= $defaults[$column] ?? null;
+            }
+            $data[$columns['buttondisplay']] = federation_manager::BUTTON_AUTO;
+            $record = (object)$data;
+            try {
+                $DB->import_record('auth_saml2_federations', $record);
+            } catch (\Throwable $exception) {
+                mtrace('Federation restore failed for ' . ($record->shortname ?? $record->id) . ': ' . $exception->getMessage());
+                continue;
+            }
+            $imported[] = $record;
         }
-
-        upgrade_plugin_savepoint(true, 2026092401, 'auth', 'saml2');
-    }
-
-    if ($oldversion < 2026092402) {
-        // Previous both (2) is now 1. Previous logo-only (1) is the new default (0).
-        $DB->set_field('auth_saml2_federations', 'buttondisplay', federation_manager::BUTTON_BOTH, ['buttondisplay' => 2]);
-        foreach (federation_manager::get_all() as $federation) {
-            federation_manager::sync_active_idp($federation);
+        if ($imported) {
+            $dbman->reset_sequence($table);
         }
-
-        upgrade_plugin_savepoint(true, 2026092402, 'auth', 'saml2');
-    }
-
-    if ($oldversion < 2026092403) {
-        // A configured federation is always an active IdP, including when its login button is disabled.
-        foreach (federation_manager::get_all() as $federation) {
-            federation_manager::sync_active_idp($federation);
+        foreach ($imported as $record) {
+            try {
+                federation_manager::sync_active_idp($record);
+            } catch (\Throwable $exception) {
+                mtrace('Federation IdP sync failed for ' . $record->shortname . ': ' . $exception->getMessage());
+            }
         }
 
         upgrade_plugin_savepoint(true, 2026092403, 'auth', 'saml2');

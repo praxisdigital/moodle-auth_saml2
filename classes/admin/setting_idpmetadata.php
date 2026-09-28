@@ -17,6 +17,7 @@
 namespace auth_saml2\admin;
 
 use admin_setting_configtextarea;
+use auth_saml2\federation_manager;
 use auth_saml2\idp_data;
 use auth_saml2\idp_parser;
 use DOMDocument;

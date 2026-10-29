@@ -25,6 +25,7 @@
 namespace auth_saml2\task;
 
 use auth_saml2\admin\setting_idpmetadata;
+use auth_saml2\federation_manager;
 use auth_saml2\idp_parser;
 use auth_saml2\metadata_fetcher;
 use auth_saml2\metadata_parser;
@@ -80,11 +81,8 @@ class metadata_refresh extends \core\task\scheduled_task {
      */
     public function execute($force = false) {
         $config = get_config('auth_saml2');
-
-        if (empty($config->idpmetadata)) {
-            mtrace('IdP metadata not configured.');
-            return false;
-        }
+        $idpok = false;
+        $fedcount = 0;
 
         if (!$force && empty($config->idpmetadatarefresh)) {
             $str = 'IdP metadata refresh is not configured. Enable it in the auth settings or disable this scheduled task';
@@ -92,23 +90,36 @@ class metadata_refresh extends \core\task\scheduled_task {
             return false;
         }
 
-        if (!$this->idpparser instanceof idp_parser) {
-            $this->idpparser = new idp_parser();
+        if (!empty($config->idpmetadata)) {
+            if (!$this->idpparser instanceof idp_parser) {
+                $this->idpparser = new idp_parser();
+            }
+
+            if ($this->idpparser->check_xml($config->idpmetadata) == true) {
+                mtrace('IdP metadata config not a URL, nothing to refresh.');
+            } else {
+                if (!$this->idpmetadata instanceof setting_idpmetadata) {
+                    $this->idpmetadata = new setting_idpmetadata();
+                }
+                $this->idpmetadata->validate($config->idpmetadata);
+                mtrace('IdP metadata refresh completed successfully.');
+                $idpok = true;
+            }
+        } else {
+            mtrace('IdP metadata not configured.');
         }
 
-        if ($this->idpparser->check_xml($config->idpmetadata) == true) {
-            mtrace('IdP metadata config not a URL, nothing to refresh.');
+        $fedcount = federation_manager::refresh_all_metadata();
+        if ($fedcount > 0) {
+            mtrace("Federation metadata refresh completed for {$fedcount} federation(s).");
+        }
+
+        // Preserve legacy return: false when IdP XML blob only and no federations refreshed.
+        if (!$idpok && $fedcount === 0 && !empty($config->idpmetadata)) {
             return false;
         }
 
-        if (!$this->idpmetadata instanceof setting_idpmetadata) {
-            $this->idpmetadata = new setting_idpmetadata();
-        }
-
-        $this->idpmetadata->validate($config->idpmetadata);
-
-        mtrace('IdP metadata refresh completed successfully.');
-        return true;
+        return $idpok || $fedcount > 0;
     }
 
     /**

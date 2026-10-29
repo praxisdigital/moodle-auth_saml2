@@ -49,6 +49,7 @@ class availableidps extends moodleform {
         $mform = $this->_form;
 
         $metadataentities = $this->_customdata['metadataentities'];
+        $federationidps = $this->_customdata['federationidps'] ?? [];
 
         foreach ($metadataentities as $metadataurl => $idpentities) {
             foreach ($idpentities as $idpentityid => $idpentity) {
@@ -125,6 +126,16 @@ class availableidps extends moodleform {
                     $mform->addElement('static', 'tenantbutton', '&nbsp;', $links);
                 }
             }
+        }
+
+        foreach ($federationidps as $idpentityid => $idpentity) {
+            $mform->addElement('header', $idpentityid . 'header', $idpentity['name']);
+            $mform->addElement('html', \html_writer::div(
+                get_string('source', 'auth_saml2', $idpentity['entityid']),
+                'alert p-2 bg-gray bg-gray020'
+            ));
+            $mform->addElement('static', $idpentityid . 'active', get_string('status', 'auth_saml2'),
+                get_string('federation_alwaysactive', 'auth_saml2'));
         }
 
         $this->add_action_buttons();

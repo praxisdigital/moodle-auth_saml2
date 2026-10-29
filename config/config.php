@@ -22,6 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use auth_saml2\federation_manager;
 use auth_saml2\ssl_algorithms;
 
 defined('MOODLE_INTERNAL') || die();
@@ -30,7 +31,18 @@ global $CFG, $saml2auth, $saml2config;
 
 $metadatasources = [];
 foreach ($saml2auth->metadataentities as $idpentity) {
+    if (federation_manager::is_federation_entityid($idpentity->entityid)) {
+        continue;
+    }
     $metadataurlhash = md5($idpentity->metadataurl);
+    $metadatasources[$metadataurlhash] = [
+        'type' => 'xml',
+        'file' => "$CFG->dataroot/saml2/" . $metadataurlhash . ".idp.xml",
+    ];
+}
+// Include federation metadata so SSP can resolve IdPs after discovery.
+foreach (federation_manager::get_all() as $federation) {
+    $metadataurlhash = md5($federation->metadataurl);
     $metadatasources[$metadataurlhash] = [
         'type' => 'xml',
         'file' => "$CFG->dataroot/saml2/" . $metadataurlhash . ".idp.xml",

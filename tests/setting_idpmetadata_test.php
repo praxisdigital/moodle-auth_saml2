@@ -118,6 +118,32 @@ final class setting_idpmetadata_test extends \advanced_testcase {
         self::assertSame(trim($xml), $actual, "Invalid saved XML contents for: {$file}");
     }
 
+    public function test_it_keeps_federation_idps_when_refreshing_metadata(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        $xml = file_get_contents(__DIR__ . '/fixtures/metadata.xml');
+        self::$config->write_setting($xml);
+
+        $federationentityid = federation_manager::idp_entityid('HAKA');
+        $DB->insert_record('auth_saml2_idps', (object) [
+            'metadataurl' => 'https://example.org/federation-metadata.xml',
+            'entityid' => $federationentityid,
+            'activeidp' => 1,
+            'defaultidp' => 0,
+            'adminidp' => 0,
+            'defaultname' => 'Login with HAKA',
+            'displayname' => 'Login with HAKA',
+        ]);
+
+        self::assertTrue(self::$config->validate($xml));
+        self::assertNotFalse($DB->get_record('auth_saml2_idps', ['entityid' => $federationentityid]));
+        self::assertNotFalse($DB->get_record('auth_saml2_idps', [
+            'entityid' => 'https://idp.example.org/idp/shibboleth',
+        ]));
+    }
+
     public function test_it_allows_empty_values(): void {
         self::assertTrue(self::$config->validate(''), 'Validate empty string.');
         self::assertTrue(self::$config->validate('  '), ' Should trim spaces.');

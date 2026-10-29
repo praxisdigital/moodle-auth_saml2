@@ -154,8 +154,14 @@ class auth extends \auth_plugin_base {
         }
 
         // Check if we have mutiple IdPs configured.
-        // If we have mutliple metadata entries set multiidp to true.
-        $this->multiidp = (count($this->metadataentities) > 1);
+        // Federation rows are active IdPs for Workplace, but they are not extra IdP choices.
+        $realidps = 0;
+        foreach ($this->metadataentities as $idpentity) {
+            if (!federation_manager::is_federation_entityid($idpentity->entityid)) {
+                $realidps++;
+            }
+        }
+        $this->multiidp = ($realidps > 1);
     }
 
     /**
@@ -263,8 +269,16 @@ class auth extends \auth_plugin_base {
         $idplist = [];
 
         // Create IdP metadata url => name mapping.
-        $idpurls = array_combine(array_column($this->metadatalist, 'idpurl'), array_column($this->metadatalist, 'idpname'));
+        $idpurls = [];
+        if (!empty($this->metadatalist)) {
+            $idpurls = array_combine(array_column($this->metadatalist, 'idpurl'), array_column($this->metadatalist, 'idpname'));
+        }
         foreach ($this->metadataentities as $idp) {
+            // Federation logins are appended below. Do not also render their synthetic IdP rows.
+            if (federation_manager::is_federation_entityid($idp->entityid)) {
+                continue;
+            }
+
             // Check for unlikely case that entity metadataurl is no longer in configuration.
             if (!array_key_exists($idp->metadataurl, $idpurls)) {
                 debugging("Missing IdP metadata configuration for '{$idp->metadataurl}'");
@@ -334,6 +348,35 @@ class auth extends \auth_plugin_base {
             ];
         }
 
+        // Append one login button per configured federation (enabled + tenant-filtered).
+        // Use the same idp param as a normal active IdP so Workplace accepts the login.
+        foreach (federation_manager::get_all(true) as $federation) {
+            if (!federation_manager::is_available_for_current_tenant($federation)) {
+                continue;
+            }
+            $idpparam = federation_manager::idp_md5($federation->shortname);
+            if (strpos($wantsurl, '/auth/saml2/login.php') !== false) {
+                $fedurl = new moodle_url($wantsurl);
+                $fedurl->param('idp', $idpparam);
+            } else {
+                $fedurl = new moodle_url('/auth/saml2/login.php', [
+                    'wants' => $wantsurl,
+                    'idp' => $idpparam,
+                ]);
+            }
+            $fedurl->param('passive', 'off');
+
+            $button = federation_manager::login_button_parts($federation);
+
+            $idplist[] = [
+                'url'  => $fedurl,
+                'icon' => null,
+                'iconurl' => $button['iconurl'],
+                // The core login template renders the image before the name.
+                'name' => $button['name'],
+            ];
+        }
+
         return $idplist;
     }
 
@@ -364,13 +407,32 @@ class auth extends \auth_plugin_base {
             return false;
         }
 
-        // Requires at least one active IdP to work.
-        if (!count($this->metadataentities)) {
-            $this->log(__FUNCTION__ . ' no active IdPs');
+        // Requires at least one active IdP or one federation with metadata.
+        $federations = federation_manager::get_all();
+        $hasidp = false;
+        foreach ($this->metadataentities as $idpentity) {
+            if (!federation_manager::is_federation_entityid($idpentity->entityid)) {
+                $hasidp = true;
+                break;
+            }
+        }
+        $hasfederation = false;
+        foreach ($federations as $federation) {
+            if (federation_manager::has_metadata_file($federation)) {
+                $hasfederation = true;
+                break;
+            }
+        }
+
+        if (!$hasidp && !$hasfederation) {
+            $this->log(__FUNCTION__ . ' no active IdPs or federations');
             return false;
         }
 
         foreach ($this->metadataentities as $idpentity) {
+            if (federation_manager::is_federation_entityid($idpentity->entityid)) {
+                continue;
+            }
             $file = $this->get_file_idp_metadata_file($idpentity->metadataurl);
             if (!file_exists($file)) {
                 $this->log(__FUNCTION__ . ' file not found, ' . $file);
@@ -608,8 +670,58 @@ class auth extends \auth_plugin_base {
         require_once(__DIR__ . '/../setup.php');
         require_once("$CFG->dirroot/login/lib.php");
 
-        // Set the default IdP to be the first in the list. Used when dual login is disabled.
-        $SESSION->saml2idp = reset($this->metadataentities)->md5entityid;
+        // Federation login: route via discovery service for the selected federation.
+        // Buttons pass idp=<md5 of federation:shortname> so Workplace treats them as active IdPs.
+        $idpparam = optional_param('idp', '', PARAM_ALPHANUM);
+        if ($idpparam !== '') {
+            $federationfromidp = federation_manager::get_by_idp_md5($idpparam);
+            if ($federationfromidp) {
+                $_GET['federation'] = $federationfromidp->shortname;
+                $_REQUEST['federation'] = $federationfromidp->shortname;
+                unset($_GET['idp'], $_REQUEST['idp']);
+            }
+        }
+        $federationparam = optional_param('federation', '', PARAM_ALPHANUMEXT);
+        if (!empty($federationparam)) {
+            $federation = federation_manager::get_by_shortname($federationparam);
+            if (!$federation) {
+                $this->error_page(get_string('federation_unknown', 'auth_saml2', $federationparam));
+            }
+            if (!federation_manager::is_enabled($federation)) {
+                $this->error_page(get_string('federation_disabled_error', 'auth_saml2', $federation->buttonlabel));
+            }
+            if (!federation_manager::is_available_for_current_tenant($federation)) {
+                $this->error_page(get_string('federation_tenantunavailable', 'auth_saml2', $federation->buttonlabel));
+            }
+            $SESSION->saml2federation = $federation->shortname;
+            unset($SESSION->saml2idp);
+
+            $passive = $this->config->duallogin == saml2_settings::OPTION_DUAL_LOGIN_PASSIVE;
+            $passive = (bool) optional_param('passive', $passive, PARAM_BOOL);
+            $params = ['isPassive' => $passive];
+            if ($passive) {
+                $params['ErrorURL'] = (new moodle_url('/login/index.php', ['saml' => 0]))->out(false);
+            }
+            $params['AllowCreate'] = $this->config->allowcreate == 1;
+
+            $auth = new \SimpleSAML\Auth\Simple($this->spname);
+            $auth->requireAuth($params);
+            $attributes = $auth->getAttributes();
+            unset($SESSION->saml2federation);
+            $this->saml_login_complete($attributes);
+            return;
+        }
+
+        // Clear any previous federation selection when logging in via a fixed IdP.
+        unset($SESSION->saml2federation);
+
+        // Set the default IdP to be the first real IdP. Used when dual login is disabled.
+        foreach ($this->metadataentities as $idpentity) {
+            if (!federation_manager::is_federation_entityid($idpentity->entityid)) {
+                $SESSION->saml2idp = $idpentity->md5entityid;
+                break;
+            }
+        }
 
         // We store the IdP in the session to generate the config/config.php array with the default local SP.
         $idpalias = optional_param('idpalias', '', PARAM_TEXT);
@@ -849,7 +961,12 @@ class auth extends \auth_plugin_base {
         $this->update_user_profile_fields($user, $attributes, $newuser);
 
         // If admin has been set for this IdP we make the user an admin.
-        if (!empty($SESSION->saml2idp) && $this->metadataentities[$SESSION->saml2idp]->adminidp) {
+        if (
+            !empty($SESSION->saml2idp) &&
+            isset($this->metadataentities[$SESSION->saml2idp]) &&
+            !federation_manager::is_federation_entityid($this->metadataentities[$SESSION->saml2idp]->entityid) &&
+            $this->metadataentities[$SESSION->saml2idp]->adminidp
+        ) {
             $admins = explode(',', $CFG->siteadmins);
             if (!in_array($user->id, $admins)) {
                 $admins[] = $user->id;

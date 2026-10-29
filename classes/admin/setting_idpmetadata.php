@@ -17,6 +17,7 @@
 namespace auth_saml2\admin;
 
 use admin_setting_configtextarea;
+use auth_saml2\federation_manager;
 use auth_saml2\idp_data;
 use auth_saml2\idp_parser;
 use DOMDocument;
@@ -88,6 +89,10 @@ class setting_idpmetadata extends admin_setting_configtextarea {
         $currentidpsrs = $DB->get_records('auth_saml2_idps');
         $oldidps = [];
         foreach ($currentidpsrs as $idpentity) {
+            // Federation logins are not part of IdP metadata and must survive a metadata refresh.
+            if (federation_manager::is_federation_entityid($idpentity->entityid)) {
+                continue;
+            }
             if (!isset($oldidps[$idpentity->metadataurl])) {
                 $oldidps[$idpentity->metadataurl] = [];
             }

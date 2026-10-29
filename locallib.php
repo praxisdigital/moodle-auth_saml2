@@ -426,6 +426,10 @@ function auth_saml2_get_idps($active = false, $asarray = false) {
     $idpentities = [];
 
     foreach ($idpentitiesrs as $idpentity) {
+        // Synthetic federation IdPs are managed on the federated login page, not as selectable IdPs.
+        if (\auth_saml2\federation_manager::is_federation_entityid($idpentity->entityid)) {
+            continue;
+        }
         $idpentity->name = empty($idpentity->displayname) ? $idpentity->defaultname : $idpentity->displayname;
         $idpentity->md5entityid = md5($idpentity->entityid);
 
